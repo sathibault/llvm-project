@@ -518,7 +518,7 @@ SourceRange CXXOperatorCallExpr::getSourceRangeImpl() const {
       return SourceRange(getArg(0)->getLocStart(), getOperatorLoc());
   } else if (Kind == OO_Arrow) {
     return getArg(0)->getSourceRange();
-  } else if (Kind == OO_Call) {
+  } else if (Kind == OO_Call && getNumArgs() > 0) {
     return SourceRange(getArg(0)->getLocStart(), getRParenLoc());
   } else if (Kind == OO_Subscript) {
     return SourceRange(getArg(0)->getLocStart(), getRParenLoc());
