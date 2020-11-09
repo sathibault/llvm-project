@@ -516,11 +516,11 @@ SourceRange CXXOperatorCallExpr::getSourceRangeImpl() const {
     else
       // Postfix operator
       return SourceRange(getArg(0)->getLocStart(), getOperatorLoc());
-  } else if (Kind == OO_Arrow) {
+  } else if (Kind == OO_Arrow && getNumArgs() > 0) {
     return getArg(0)->getSourceRange();
   } else if (Kind == OO_Call && getNumArgs() > 0) {
     return SourceRange(getArg(0)->getLocStart(), getRParenLoc());
-  } else if (Kind == OO_Subscript) {
+  } else if (Kind == OO_Subscript && getNumArgs() > 0) {
     return SourceRange(getArg(0)->getLocStart(), getRParenLoc());
   } else if (getNumArgs() == 1) {
     return SourceRange(getOperatorLoc(), getArg(0)->getLocEnd());
