@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <iostream>
 #include "clang/Sema/SemaInternal.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/SourceManager.h"
@@ -114,6 +115,21 @@ static Attr *handleLoopHintAttr(Sema &S, Stmt *St, const AttributeList &A,
                                       ValueExpr, A.getRange());
 }
 
+static Attr *handleMetaTagAttr(Sema &S, Stmt *St, const AttributeList &A,
+			       SourceRange Range) {
+  IdentifierLoc *OptionLoc = A.getArgAsIdent(0);
+
+  StringRef Note;
+  if (!S.checkStringLiteralArgumentAttr(A, 1, Note))
+    return nullptr;
+
+  IdentifierInfo *OptionInfo = OptionLoc->Ident;
+
+  return ::new (S.Context) MetaTagAttr(A.getRange(), S.Context,
+				       OptionInfo->getName(), Note,
+				       A.getAttributeSpellingListIndex());
+}
+
 static void
 CheckForIncompatibleAttributes(Sema &S,
                                const SmallVectorImpl<const Attr *> &Attrs) {
@@ -202,6 +218,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const AttributeList &A,
     return handleFallThroughAttr(S, St, A, Range);
   case AttributeList::AT_LoopHint:
     return handleLoopHintAttr(S, St, A, Range);
+  case AttributeList::AT_MetaTag:
+    return handleMetaTagAttr(S, St, A, Range);
   default:
     // if we're here, then we parsed a known attribute, but didn't recognize
     // it as a statement attribute => it is declaration attribute
@@ -215,8 +233,9 @@ StmtResult Sema::ProcessStmtAttributes(Stmt *S, AttributeList *AttrList,
                                        SourceRange Range) {
   SmallVector<const Attr*, 8> Attrs;
   for (const AttributeList* l = AttrList; l; l = l->getNext()) {
-    if (Attr *a = ProcessStmtAttribute(*this, S, *l, Range))
+    if (Attr *a = ProcessStmtAttribute(*this, S, *l, Range)) {
       Attrs.push_back(a);
+    }
   }
 
   CheckForIncompatibleAttributes(*this, Attrs);

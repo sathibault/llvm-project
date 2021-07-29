@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <iostream>
 #include "RAIIObjectsForParser.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/TargetInfo.h"
@@ -18,6 +19,7 @@
 #include "clang/Parse/ParseDiagnostic.h"
 #include "clang/Parse/Parser.h"
 #include "clang/Sema/LoopHint.h"
+#include "clang/Sema/MetaTag.h"
 #include "clang/Sema/Scope.h"
 #include "llvm/ADT/StringSwitch.h"
 using namespace clang;
@@ -156,6 +158,13 @@ struct PragmaUnrollHintHandler : public PragmaHandler {
                     Token &FirstToken) override;
 };
 
+struct PragmaMetaTagHandler : public PragmaHandler {
+  PragmaMetaTagHandler() : PragmaHandler("metatag") {}
+  void HandlePragma(Preprocessor &PP, PragmaIntroducerKind Introducer,
+                    Token &FirstToken) override;
+};
+
+
 }  // end namespace
 
 void Parser::initializePragmaHandlers() {
@@ -232,6 +241,9 @@ void Parser::initializePragmaHandlers() {
 
   NoUnrollHintHandler.reset(new PragmaUnrollHintHandler("nounroll"));
   PP.AddPragmaHandler(NoUnrollHintHandler.get());
+
+  MetaTagHandler.reset(new PragmaMetaTagHandler());
+  PP.AddPragmaHandler(MetaTagHandler.get());
 }
 
 void Parser::resetPragmaHandlers() {
@@ -298,6 +310,9 @@ void Parser::resetPragmaHandlers() {
 
   PP.RemovePragmaHandler(NoUnrollHintHandler.get());
   NoUnrollHintHandler.reset();
+
+  PP.RemovePragmaHandler(MetaTagHandler.get());
+  MetaTagHandler.reset();
 }
 
 /// \brief Handle the annotation token produced for #pragma unused(...)
@@ -856,6 +871,57 @@ bool Parser::HandlePragmaLoopHint(LoopHint &Hint) {
 
   Hint.Range = SourceRange(Info->PragmaName.getLocation(),
                            Info->Toks[TokSize - 1].getLocation());
+  return true;
+}
+
+struct PragmaMetaTagInfo {
+  Token PragmaName;
+  Token Option;
+  Token *Toks;
+  size_t TokSize;
+  PragmaMetaTagInfo() : Toks(nullptr), TokSize(0) {}
+};
+
+bool Parser::HandlePragmaMetaTag(MetaTag &Meta) {
+  assert(Tok.is(tok::annot_pragma_metatag));
+  PragmaMetaTagInfo *Info =
+      static_cast<PragmaMetaTagInfo *>(Tok.getAnnotationValue());
+
+  IdentifierInfo *PragmaNameInfo = Info->PragmaName.getIdentifierInfo();
+  Meta.PragmaNameLoc = IdentifierLoc::create(
+      Actions.Context, Info->PragmaName.getLocation(), PragmaNameInfo);
+
+  IdentifierInfo *OptionInfo = Info->Option.getIdentifierInfo();
+  Meta.OptionLoc = IdentifierLoc::create(
+      Actions.Context, Info->Option.getLocation(), OptionInfo);
+
+  Token *Toks = Info->Toks;
+  size_t TokSize = Info->TokSize;
+
+  // Enter constant expression including eof terminator into token stream.
+  PP.EnterTokenStream(Toks, TokSize, /*DisableMacroExpansion=*/false,
+		      /*OwnsTokens=*/false);
+  ConsumeToken(); // The annotation token.
+
+  ExprResult R = ParseConstantExpression();
+
+  // Tokens following an error in an ill-formed constant expression will
+  // remain in the token stream and must be removed.
+  if (Tok.isNot(tok::eof)) {
+    Diag(Tok.getLocation(), diag::warn_pragma_extra_tokens_at_eol);
+    while (Tok.isNot(tok::eof))
+      ConsumeAnyToken();
+  } else
+    ConsumeToken(); // eof terminator.
+
+  if (R.isInvalid())
+    return false;
+  
+  Meta.ValueExpr = R.get();
+
+  Meta.Range = SourceRange(Info->PragmaName.getLocation(),
+                           Info->Toks[TokSize - 1].getLocation());
+
   return true;
 }
 
@@ -2075,6 +2141,54 @@ void PragmaUnrollHintHandler::HandlePragma(Preprocessor &PP,
   Token *TokenArray = new Token[1];
   TokenArray[0].startToken();
   TokenArray[0].setKind(tok::annot_pragma_loop_hint);
+  TokenArray[0].setLocation(PragmaName.getLocation());
+  TokenArray[0].setAnnotationValue(static_cast<void *>(Info));
+  PP.EnterTokenStream(TokenArray, 1, /*DisableMacroExpansion=*/false,
+                      /*OwnsTokens=*/true);
+}
+
+void PragmaMetaTagHandler::HandlePragma(Preprocessor &PP,
+					PragmaIntroducerKind Introducer,
+					Token &Tok) {
+  Token PragmaName = Tok;
+
+  PP.Lex(Tok);
+  if (Tok.isNot(tok::identifier)) {
+    PP.Diag(Tok.getLocation(), diag::warn_pragma_expected_identifier);
+    return;
+  }
+
+  auto *Info = new (PP.getPreprocessorAllocator()) PragmaMetaTagInfo;
+
+  Token Option = Tok;
+  PP.Lex(Tok);
+
+  // Eat up tokens up to end of directive.
+  // These get parsed in Parser::HandlePragmaMetaTag (ParsePragma.cpp)
+  // which is called from Parser::ParsePragmaMetaTag (ParseStmt.cpp).
+  SmallVector<Token, 1> ValueList;
+  while (Tok.isNot(tok::eod)) {
+    ValueList.push_back(Tok);
+    PP.Lex(Tok);
+  }
+
+  Info->PragmaName = PragmaName;
+  Info->Option = Option;
+
+  Token EOFTok;
+  EOFTok.startToken();
+  EOFTok.setKind(tok::eof);
+  EOFTok.setLocation(Tok.getLocation());
+  ValueList.push_back(EOFTok); // Terminates expression for parsing.
+
+  Info->Toks = (Token *)PP.getPreprocessorAllocator().Allocate(
+      ValueList.size() * sizeof(Token), llvm::alignOf<Token>());
+  std::copy(ValueList.begin(), ValueList.end(), Info->Toks);
+  Info->TokSize = ValueList.size();
+
+  Token *TokenArray = new Token[1];
+  TokenArray[0].startToken();
+  TokenArray[0].setKind(tok::annot_pragma_metatag);
   TokenArray[0].setLocation(PragmaName.getLocation());
   TokenArray[0].setAnnotationValue(static_cast<void *>(Info));
   PP.EnterTokenStream(TokenArray, 1, /*DisableMacroExpansion=*/false,

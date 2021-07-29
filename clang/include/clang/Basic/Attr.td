@@ -1975,3 +1975,14 @@ def OMPThreadPrivateDecl : InheritableAttr {
   let SemaHandler = 0;
   let Documentation = [Undocumented];
 }
+
+def MetaTag : Attr {
+  let Spellings = [Pragma<"", "metatag">];
+  let Args = [StringArgument<"Tool">,StringArgument<"Note">];
+  let Documentation = [Undocumented];
+  let AdditionalMembers = [{
+  void printPrettyPragma(raw_ostream &OS, const PrintingPolicy &Policy) const {
+    OS << getTool() << getNote();
+  }
+  }];
+}

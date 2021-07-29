@@ -21,6 +21,7 @@
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/LoopHint.h"
+#include "clang/Sema/MetaTag.h"
 #include "clang/Sema/Sema.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/Compiler.h"
@@ -164,6 +165,7 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> LoopHintHandler;
   std::unique_ptr<PragmaHandler> UnrollHintHandler;
   std::unique_ptr<PragmaHandler> NoUnrollHintHandler;
+  std::unique_ptr<PragmaHandler> MetaTagHandler;
 
   std::unique_ptr<CommentHandler> CommentSemaHandler;
 
@@ -518,6 +520,10 @@ private:
   /// \brief Handle the annotation token produced for
   /// #pragma clang loop and #pragma unroll.
   bool HandlePragmaLoopHint(LoopHint &Hint);
+
+  /// \brief Handle the annotation token produced for
+  /// #pragma metatag.
+  bool HandlePragmaMetaTag(MetaTag &Meta);
 
   /// GetLookAheadToken - This peeks ahead N tokens and returns that token
   /// without consuming any tokens.  LookAhead(0) returns 'Tok', LookAhead(1)
@@ -1606,6 +1612,9 @@ private:
   StmtResult ParsePragmaLoopHint(StmtVector &Stmts, bool OnlyStatement,
                                  SourceLocation *TrailingElseLoc,
                                  ParsedAttributesWithRange &Attrs);
+  StmtResult ParsePragmaMetaTag(StmtVector &Stmts, bool OnlyStatement,
+				SourceLocation *TrailingElseLoc,
+				ParsedAttributesWithRange &Attrs);
 
   /// \brief Describes the behavior that should be taken for an __if_exists
   /// block.

@@ -12,6 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include <iostream>
 #include "clang/Parse/Parser.h"
 #include "RAIIObjectsForParser.h"
 #include "clang/AST/ASTContext.h"
@@ -360,6 +361,10 @@ Retry:
   case tok::annot_pragma_loop_hint:
     ProhibitAttributes(Attrs);
     return ParsePragmaLoopHint(Stmts, OnlyStatement, TrailingElseLoc, Attrs);
+
+  case tok::annot_pragma_metatag:
+    ProhibitAttributes(Attrs);
+    return ParsePragmaMetaTag(Stmts, OnlyStatement, TrailingElseLoc, Attrs);
   }
 
   // If we reached this code, the statement must end in a semicolon.
@@ -1836,6 +1841,34 @@ StmtResult Parser::ParsePragmaLoopHint(StmtVector &Stmts, bool OnlyStatement,
       Stmts, OnlyStatement, TrailingElseLoc, Attrs);
 
   Attrs.takeAllFrom(TempAttrs);
+  return S;
+}
+
+StmtResult Parser::ParsePragmaMetaTag(StmtVector &Stmts, bool OnlyStatement,
+				      SourceLocation *TrailingElseLoc,
+				      ParsedAttributesWithRange &Attrs) {
+  ParsedAttributesWithRange TempAttrs(AttrFactory);
+
+  if (Tok.is(tok::annot_pragma_metatag)) {
+    MetaTag Meta;
+    HandlePragmaMetaTag(Meta);
+    
+    ArgsUnion ArgHints[] = {
+      Meta.OptionLoc,
+      ArgsUnion(Meta.ValueExpr)
+    };
+    TempAttrs.addNew(Meta.PragmaNameLoc->Ident, Meta.Range, nullptr,
+		     Meta.PragmaNameLoc->Loc, ArgHints, 2,
+		     AttributeList::AS_Pragma);
+  }
+
+  MaybeParseCXX11Attributes(Attrs);
+
+  StmtResult S = ParseStatementOrDeclarationAfterAttributes(
+      Stmts, OnlyStatement, TrailingElseLoc, Attrs);
+
+  Attrs.takeAllFrom(TempAttrs);
+
   return S;
 }
 
